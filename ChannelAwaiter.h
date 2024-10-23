@@ -18,12 +18,13 @@ struct WriterAwaiter : public Awaiter<void> {
     ValueType _value;
 
 
-    WriterAwaiter(Channel<ValueType> *channel, ValueType value) : channel(channel), _value(value) {}
+    WriterAwaiter(Channel<ValueType> *channel, ValueType value)
+            : channel(channel), _value(std::move(value)) {}
 
     WriterAwaiter(WriterAwaiter &&other) noexcept
             : Awaiter(other),
               channel(std::exchange(other.channel, nullptr)),
-              _value(other._value) {}
+              _value(std::move(other._value)) {}
 
     [[nodiscard]] bool await_ready() override { return false; }
 
@@ -53,17 +54,8 @@ struct ReaderAwaiter : public Awaiter<ValueType> {
               channel(std::exchange(other.channel, nullptr)),
               p_value(std::exchange(other.p_value, nullptr)) {}
 
-    [[nodiscard]] bool await_ready() override {
-        // 尝试立即读取数据
-        auto opt = channel->try_read();
-        debug("", opt.value());
-        if (opt.has_value()) {
-            // 使用 std::move 将 optional 中的值转换为右值
-            this->_result = Result<ValueType>(std::move(opt.value()));
-            return true;
-        }
-        return false;
-    }
+    [[nodiscard]] bool await_ready() override { return false; }
+
 
     void after_suspend() override {
         channel->try_push_reader(this);
@@ -72,7 +64,7 @@ struct ReaderAwaiter : public Awaiter<ValueType> {
     void before_resume() override {
         channel->check_closed();
         if (p_value) {
-            *p_value = this->_result->get_or_throw();
+            *p_value = std::move(this->_result->get_or_throw());
         }
         channel = nullptr;
     }

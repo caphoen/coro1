@@ -29,15 +29,14 @@ struct Channel {
         check_closed();
 
         if (!buffer.empty()) {
-            auto value = buffer.front();
+            ValueType value = std::move(buffer.front());
             buffer.pop();
 
             if (!writer_list.empty()) {
                 auto writer = writer_list.front();
                 writer_list.pop_front();
-                buffer.push(writer->_value);
+                buffer.push(std::move(writer->_value));
                 lock.unlock();
-
                 writer->resume();
             } else {
                 lock.unlock();
@@ -52,7 +51,7 @@ struct Channel {
             writer_list.pop_front();
             lock.unlock();
 
-            reader_awaiter->resume(writer->_value);
+            reader_awaiter->resume(std::move(writer->_value));
             writer->resume();
             return;
         }
@@ -63,26 +62,27 @@ struct Channel {
     void try_push_writer(WriterAwaiter<ValueType> *writer_awaiter) {
         std::unique_lock lock(channel_lock);
         check_closed();
-        // suspended readers
+
+        // 优先处理等待的reader
         if (!reader_list.empty()) {
             auto reader = reader_list.front();
             reader_list.pop_front();
             lock.unlock();
 
-            reader->resume(writer_awaiter->_value);
+            reader->resume(std::move(writer_awaiter->_value));
             writer_awaiter->resume();
             return;
         }
 
-        // write to buffer
+        // 如果buffer未满，写入buffer
         if (buffer.size() < buffer_capacity) {
-            buffer.push(writer_awaiter->_value);
+            buffer.push(std::move(writer_awaiter->_value));
             lock.unlock();
             writer_awaiter->resume();
             return;
         }
 
-        // suspend writer
+        // buffer已满，将writer加入等待队列
         writer_list.push_back(writer_awaiter);
     }
 
@@ -108,19 +108,6 @@ struct Channel {
         return ReaderAwaiter<ValueType>{this};
     }
 
-    // 新增方法:尝试读取数据
-    std::optional<ValueType> try_read() {
-        std::unique_lock lock(channel_lock);
-        check_closed();
-
-        if (!buffer.empty()) {
-            auto &&value = buffer.front();
-            buffer.pop();
-            return value;
-        }
-        return std::nullopt;
-    }
-
 
     void close() {
         bool expect = true;
@@ -129,19 +116,21 @@ struct Channel {
         }
     }
 
-    explicit Channel(int capacity = 0) : buffer_capacity(capacity) {
-        _is_active.store(true, std::memory_order_relaxed);
-    }
-
     [[nodiscard]] bool is_active() const {
         return _is_active.load(std::memory_order_relaxed);
     }
 
+    explicit Channel(int capacity = 0) : buffer_capacity(capacity) {
+        _is_active.store(true, std::memory_order_relaxed);
+    }
+
     Channel(Channel &&channel) = delete;
 
-    Channel(Channel &) = delete;
+    Channel(const Channel &) = delete;
 
-    Channel &operator=(Channel &) = delete;
+    Channel &operator=(const Channel &) = delete;
+
+    Channel &operator=(Channel &&) = delete;
 
     ~Channel() {
         close();
@@ -171,8 +160,9 @@ private:
         }
         reader_list.clear();
 
-        decltype(buffer) empty_buffer;
-        std::swap(buffer, empty_buffer);
+        while (!buffer.empty()) {
+            buffer.pop();
+        }
     }
 };
 
