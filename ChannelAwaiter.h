@@ -14,57 +14,72 @@ struct Channel;
 
 template<typename ValueType>
 struct WriterAwaiter : public Awaiter<void> {
-  Channel<ValueType> *channel;
-  ValueType _value;
+    Channel<ValueType> *channel;
+    ValueType _value;
 
-  WriterAwaiter(Channel<ValueType> *channel, ValueType value) : channel(channel), _value(value) {}
 
-  WriterAwaiter(WriterAwaiter &&other) noexcept
-      : Awaiter(other),
-        channel(std::exchange(other.channel, nullptr)),
-        _value(other._value) {}
+    WriterAwaiter(Channel<ValueType> *channel, ValueType value) : channel(channel), _value(value) {}
 
-  void after_suspend() override {
-    channel->try_push_writer(this);
-  }
+    WriterAwaiter(WriterAwaiter &&other) noexcept
+            : Awaiter(other),
+              channel(std::exchange(other.channel, nullptr)),
+              _value(other._value) {}
 
-  void before_resume() override {
-    channel->check_closed();
-    channel = nullptr;
-  }
+    [[nodiscard]] bool await_ready() override { return false; }
 
-  ~WriterAwaiter() {
-    if (channel) channel->remove_writer(this);
-  }
+    void after_suspend() override {
+        channel->try_push_writer(this);
+    }
+
+    void before_resume() override {
+        channel->check_closed();
+        channel = nullptr;
+    }
+
+    ~WriterAwaiter() {
+        if (channel) channel->remove_writer(this);
+    }
 };
 
 template<typename ValueType>
 struct ReaderAwaiter : public Awaiter<ValueType> {
-  Channel<ValueType> *channel;
-  ValueType *p_value = nullptr;
+    Channel<ValueType> *channel;
+    ValueType *p_value = nullptr;
 
-  explicit ReaderAwaiter(Channel<ValueType> *channel) : Awaiter<ValueType>(), channel(channel) {}
+    explicit ReaderAwaiter(Channel<ValueType> *channel) : Awaiter<ValueType>(), channel(channel) {}
 
-  ReaderAwaiter(ReaderAwaiter &&other) noexcept
-      : Awaiter<ValueType>(other),
-        channel(std::exchange(other.channel, nullptr)),
-        p_value(std::exchange(other.p_value, nullptr)) {}
+    ReaderAwaiter(ReaderAwaiter &&other) noexcept
+            : Awaiter<ValueType>(other),
+              channel(std::exchange(other.channel, nullptr)),
+              p_value(std::exchange(other.p_value, nullptr)) {}
 
-  void after_suspend() override {
-    channel->try_push_reader(this);
-  }
-
-  void before_resume() override {
-    channel->check_closed();
-    if (p_value) {
-      *p_value = this->_result->get_or_throw();
+    [[nodiscard]] bool await_ready() override {
+        // 尝试立即读取数据
+        auto opt = channel->try_read();
+        debug("", opt.value());
+        if (opt.has_value()) {
+            // 使用 std::move 将 optional 中的值转换为右值
+            this->_result = Result<ValueType>(std::move(opt.value()));
+            return true;
+        }
+        return false;
     }
-    channel = nullptr;
-  }
 
-  ~ReaderAwaiter() {
-    if (channel) channel->remove_reader(this);
-  }
+    void after_suspend() override {
+        channel->try_push_reader(this);
+    }
+
+    void before_resume() override {
+        channel->check_closed();
+        if (p_value) {
+            *p_value = this->_result->get_or_throw();
+        }
+        channel = nullptr;
+    }
+
+    ~ReaderAwaiter() {
+        if (channel) channel->remove_reader(this);
+    }
 };
 
 #endif //CPPCOROUTINES_TASKS_07_CHANNEL_CHANNELAWAITER_H_

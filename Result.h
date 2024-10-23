@@ -12,9 +12,9 @@ struct Result {
 
   explicit Result() = default;
 
-  explicit Result(T &&value) : _value(value) {}
+  explicit Result(T &&value) : _value(std::forward<T>(value)) {}
 
-  explicit Result(std::exception_ptr &&exception_ptr) : _exception_ptr(exception_ptr) {}
+  explicit Result(std::exception_ptr &&exception_ptr) : _exception_ptr(std::move(exception_ptr)) {}
 
   T get_or_throw() {
     if (_exception_ptr) {

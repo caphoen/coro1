@@ -14,14 +14,14 @@ struct Awaiter {
 
     using ResultType = R;
 
-    bool await_ready() const { return false; }
+    [[nodiscard]] virtual bool await_ready() = 0;
 
-    void await_suspend(std::coroutine_handle<> handle) {
+    virtual void await_suspend(std::coroutine_handle<> handle) {
         this->_handle = handle;
         after_suspend();
     }
 
-    R await_resume() {
+    virtual R await_resume() {
         before_resume();
         return _result->get_or_throw();
     }
@@ -44,7 +44,7 @@ struct Awaiter {
         });
     }
 
-    void install_executor(std::shared_ptr<AbstractExecutor> executor) {
+    void install_executor(std::shared_ptr<AbstractExecutor> &executor) {
         _executor = executor;
     }
 
@@ -73,7 +73,7 @@ struct Awaiter<void> {
 
     using ResultType = void;
 
-    bool await_ready() { return false; }
+    [[nodiscard]] virtual bool await_ready() = 0;
 
     void await_suspend(std::coroutine_handle<> handle) {
         this->_handle = handle;

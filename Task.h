@@ -13,25 +13,17 @@ struct Task {
 
     using promise_type = TaskPromise<ResultType, Executor>;
 
-    auto as_awaiter() {
-        return TaskAwaiter<ResultType, Executor>(std::move(*this));
-    }
-
-    ResultType get_result() {
-        return handle.promise().get_result();
-    }
-
     explicit Task(std::coroutine_handle<promise_type> handle) noexcept: handle(handle) {}
 
     Task(Task &&task) noexcept: handle(std::exchange(task.handle, {})) {}
 
-    Task(Task &) = delete;
+    Task &operator=(Task &&task) = delete;
 
-    Task &operator=(Task &) = delete;
+    Task(const Task &) = delete;
 
-    ~Task() {
-        if (handle) handle.destroy();
-    }
+    Task &operator=(const Task &) = delete;
+
+    ~Task() = default;
 
 private:
     std::coroutine_handle<promise_type> handle;
@@ -48,13 +40,12 @@ struct Task<void, Executor> {
 
     Task &operator=(const Task &) = delete;
 
-    Task(Task &&task) noexcept : handle(std::exchange(task.handle, nullptr)) {}
+    Task(Task &&task) noexcept: handle(std::exchange(task.handle, nullptr)) {}
 
     Task &operator=(Task &&) = delete;
 
-    ~Task() {
-        if (handle) handle.destroy();
-    }
+    ~Task() = default;
+
 
 private:
     std::coroutine_handle<promise_type> handle;

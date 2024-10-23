@@ -17,47 +17,6 @@ class AbstractExecutor {
   virtual void execute(std::function<void()> &&func) = 0;
 };
 
-class NoopExecutor : public AbstractExecutor {
- public:
-  void execute(std::function<void()> &&func) override {
-    func();
-  }
-};
-
-class NewThreadExecutor : public AbstractExecutor {
- public:
-  void execute(std::function<void()> &&func) override {
-    std::thread(func).detach();
-  }
-};
-
-class AsyncExecutor : public AbstractExecutor {
- public:
-  void execute(std::function<void()> &&func) override {
-    std::unique_lock lock(future_lock);
-    auto id = nextId++;
-    lock.unlock();
-
-    auto future = std::async([this, id, func](){
-      func();
-
-      std::unique_lock lock(future_lock);
-      // move future to stack so that it will be destroyed after unlocked.
-      auto f = std::move(this->futures[id]);
-      this->futures.erase(id);
-      lock.unlock();
-    });
-
-    lock.lock();
-    this->futures[id] = std::move(future);
-    lock.unlock();
-  }
- private:
-  std::mutex future_lock;
-  int nextId = 0;
-  std::map<int, std::future<void>> futures{};
-};
-
 class LooperExecutor : public AbstractExecutor {
  private:
   std::condition_variable queue_condition;

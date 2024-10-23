@@ -12,29 +12,10 @@
 
 #include "coroutine_common.h"
 #include "Result.h"
-//#include "DispatchAwaiter.h"
 #include "TaskAwaiter.h"
 #include "SleepAwaiter.h"
 #include "ChannelAwaiter.h"
 #include "CommonAwaiter.h"
-
-struct InitialAwaiter {
-    explicit InitialAwaiter(std::shared_ptr<AbstractExecutor> &executor) noexcept
-            : executor_(executor) {}
-
-    [[nodiscard]] bool await_ready() const noexcept { return false; }
-
-    [[nodiscard]] bool await_suspend(std::coroutine_handle<> handle) const noexcept {
-        executor_->execute([handle]() { handle.resume(); });
-        return true;
-    }
-
-    void await_resume() noexcept {}
-
-private:
-    std::shared_ptr<AbstractExecutor> executor_;
-
-};
 
 template<typename AwaiterImpl, typename R>
 concept AwaiterImplRestriction = std::is_base_of<Awaiter<R>, AwaiterImpl>::value;
@@ -44,11 +25,44 @@ class Task;
 
 template<typename ResultType, typename Executor>
 struct TaskPromise {
-    TaskPromise() : executor(std::make_shared<Executor>()) {}
+    using promise_type = TaskPromise<ResultType, Executor>;
 
-    InitialAwaiter initial_suspend() { return InitialAwaiter{executor}; }
+    TaskPromise() : executor_(std::make_shared<Executor>()) {}
 
-    std::suspend_always final_suspend() noexcept { return {}; }
+    auto initial_suspend()const noexcept {
+        struct InitialAwaiter {
+            explicit InitialAwaiter(std::shared_ptr<AbstractExecutor> &executor) noexcept
+                    : executor_(executor) {}
+
+            [[nodiscard]] bool await_ready() const noexcept { return false; }
+
+            [[nodiscard]] bool await_suspend(std::coroutine_handle<promise_type> handle) const noexcept {
+                executor_->execute([handle]() { handle.resume(); });
+                return true;
+            }
+
+            void await_resume() noexcept {}
+
+        private:
+            std::shared_ptr<AbstractExecutor> executor_{nullptr};
+
+        };
+        return InitialAwaiter{executor_};
+    }
+
+    auto final_suspend() const noexcept {
+
+        struct FinalAwaiter {
+            [[nodiscard]] bool await_ready() const noexcept { return false; }
+
+            std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> handle) noexcept {
+                if (handle) handle.destroy();
+            }
+
+            void await_resume() noexcept {}
+        };
+        return FinalAwaiter{};
+    }
 
     Task<ResultType, Executor> get_return_object() {
         return Task{std::coroutine_handle<TaskPromise>::from_promise(*this)};
@@ -67,7 +81,7 @@ struct TaskPromise {
     template<typename AwaiterImpl>
     requires AwaiterImplRestriction<AwaiterImpl, typename AwaiterImpl::ResultType>
     AwaiterImpl await_transform(AwaiterImpl awaiter) {
-        awaiter.install_executor(executor);
+        awaiter.install_executor(executor_);
         return awaiter;
     }
 
@@ -113,7 +127,7 @@ private:
 
     std::list<std::function<void(Result<ResultType>)>> completion_callbacks;
 
-    std::shared_ptr<AbstractExecutor> executor;
+    std::shared_ptr<AbstractExecutor> executor_;
 
     void notify_callbacks() {
         auto value = result.value();
@@ -127,10 +141,44 @@ private:
 
 template<typename Executor>
 struct TaskPromise<void, Executor> {
-    TaskPromise() : executor_(std::make_shared<Executor>()) {}
-    InitialAwaiter initial_suspend() { return InitialAwaiter{executor_}; }
+    using promise_type = TaskPromise<void, Executor>;
 
-    std::suspend_always final_suspend() noexcept { return {}; }
+    TaskPromise() : executor_(std::make_shared<Executor>()) {}
+
+    auto initial_suspend() noexcept {
+        struct InitialAwaiter {
+            explicit InitialAwaiter(std::shared_ptr<AbstractExecutor> &executor) noexcept
+                    : executor_(executor) {}
+
+            [[nodiscard]] bool await_ready() const noexcept { return false; }
+
+            [[nodiscard]] bool await_suspend(std::coroutine_handle<promise_type> handle) const noexcept {
+                executor_->execute([handle]() { handle.resume(); });
+                return true;
+            }
+
+            void await_resume() noexcept {}
+
+        private:
+            std::shared_ptr<AbstractExecutor> executor_;
+
+        };
+        return InitialAwaiter{executor_};
+    }
+
+    auto final_suspend() noexcept {
+
+        struct FinalAwaiter {
+            [[nodiscard]] bool await_ready() const noexcept { return false; }
+
+            std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> handle) noexcept {
+                if (handle) handle.destroy();
+            }
+
+            void await_resume() noexcept {}
+        };
+        return FinalAwaiter{};
+    }
 
     Task<void, Executor> get_return_object() {
         return Task{std::coroutine_handle<TaskPromise>::from_promise(*this)};
@@ -149,6 +197,10 @@ struct TaskPromise<void, Executor> {
     template<typename AwaiterImpl>
     requires AwaiterImplRestriction<AwaiterImpl, typename AwaiterImpl::ResultType>
     AwaiterImpl await_transform(AwaiterImpl &&awaiter) {
+        /*
+         * 之所以这里不转移所有权是因为每个协程只会创建 executor_ 一次
+         *  当co_await时，每次都需要传executor_引用
+         */
         awaiter.install_executor(executor_);
         return awaiter;
     }
