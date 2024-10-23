@@ -18,189 +18,192 @@
 #include "ChannelAwaiter.h"
 #include "CommonAwaiter.h"
 
-struct DispatchAwaiter {
-    explicit DispatchAwaiter(std::shared_ptr<AbstractExecutor> executor) noexcept
-            : executor_(std::move(executor)) {}
+struct InitialAwaiter {
+    explicit InitialAwaiter(std::shared_ptr<AbstractExecutor> &executor) noexcept
+            : executor_(executor) {}
 
-    bool await_ready() const { return false; }
+    [[nodiscard]] bool await_ready() const noexcept { return false; }
 
-    void await_suspend(std::coroutine_handle<> handle) const {
-        executor_->execute([handle]() {
-            handle.resume();
-        });
+    [[nodiscard]] bool await_suspend(std::coroutine_handle<> handle) const noexcept {
+        executor_->execute([handle]() { handle.resume(); });
+        return true;
     }
 
-    void await_resume() {}
+    void await_resume() noexcept {}
 
 private:
     std::shared_ptr<AbstractExecutor> executor_;
+
 };
 
 template<typename AwaiterImpl, typename R>
-concept AwaiterImplRestriction = std::is_base_of_v<Awaiter<R>, AwaiterImpl>;
+concept AwaiterImplRestriction = std::is_base_of<Awaiter<R>, AwaiterImpl>::value;
 
 template<typename ResultType, typename Executor>
 class Task;
 
 template<typename ResultType, typename Executor>
 struct TaskPromise {
-  DispatchAwaiter initial_suspend() { return DispatchAwaiter{executor}; }
+    TaskPromise() : executor(std::make_shared<Executor>()) {}
 
-  std::suspend_always final_suspend() noexcept { return {}; }
+    InitialAwaiter initial_suspend() { return InitialAwaiter{executor}; }
 
-  Task<ResultType, Executor> get_return_object() {
-    return Task{std::coroutine_handle<TaskPromise>::from_promise(*this)};
-  }
+    std::suspend_always final_suspend() noexcept { return {}; }
 
-  template<typename _ResultType, typename _Executor>
-  TaskAwaiter<_ResultType, _Executor> await_transform(Task<_ResultType, _Executor> &&task) {
-    return await_transform(TaskAwaiter<_ResultType, _Executor>(std::move(task)));
-  }
-
-  template<typename _Rep, typename _Period>
-  auto await_transform(std::chrono::duration<_Rep, _Period> &&duration) {
-    return await_transform(SleepAwaiter(duration));
-  }
-
-  template<typename AwaiterImpl>
-  requires AwaiterImplRestriction<AwaiterImpl, typename AwaiterImpl::ResultType>
-  AwaiterImpl await_transform(AwaiterImpl awaiter) {
-    awaiter.install_executor(executor);
-    return awaiter;
-  }
-
-  void unhandled_exception() {
-    std::lock_guard lock(completion_lock);
-    result = Result<ResultType>(std::current_exception());
-    completion.notify_all();
-    notify_callbacks();
-  }
-
-  void return_value(ResultType value) {
-    std::lock_guard lock(completion_lock);
-    result = Result<ResultType>(std::move(value));
-    completion.notify_all();
-    notify_callbacks();
-  }
-
-  ResultType get_result() {
-    // blocking for result or throw on exception
-    std::unique_lock lock(completion_lock);
-    if (!result.has_value()) {
-      completion.wait(lock);
+    Task<ResultType, Executor> get_return_object() {
+        return Task{std::coroutine_handle<TaskPromise>::from_promise(*this)};
     }
-    return result->get_or_throw();
-  }
 
-  void on_completed(std::function<void(Result<ResultType>)> &&func) {
-    std::unique_lock lock(completion_lock);
-    if (result.has_value()) {
-      auto value = result.value();
-      lock.unlock();
-      func(value);
-    } else {
-      completion_callbacks.push_back(func);
+    template<typename _ResultType, typename _Executor>
+    TaskAwaiter<_ResultType, _Executor> await_transform(Task<_ResultType, _Executor> &&task) {
+        return await_transform(TaskAwaiter<_ResultType, _Executor>(std::move(task)));
     }
-  }
 
- private:
-  std::optional<Result<ResultType>> result;
-
-  std::mutex completion_lock;
-  std::condition_variable completion;
-
-  std::list<std::function<void(Result<ResultType>)>> completion_callbacks;
-
-    std::shared_ptr<AbstractExecutor>  executor;
-
-  void notify_callbacks() {
-    auto value = result.value();
-    for (auto &callback : completion_callbacks) {
-      callback(value);
+    template<typename _Rep, typename _Period>
+    auto await_transform(std::chrono::duration<_Rep, _Period> &&duration) {
+        return await_transform(SleepAwaiter(duration));
     }
-    completion_callbacks.clear();
-  }
+
+    template<typename AwaiterImpl>
+    requires AwaiterImplRestriction<AwaiterImpl, typename AwaiterImpl::ResultType>
+    AwaiterImpl await_transform(AwaiterImpl awaiter) {
+        awaiter.install_executor(executor);
+        return awaiter;
+    }
+
+    void unhandled_exception() {
+        std::lock_guard lock(completion_lock);
+        result = Result<ResultType>(std::current_exception());
+        completion.notify_all();
+        notify_callbacks();
+    }
+
+    void return_value(ResultType value) {
+        std::lock_guard lock(completion_lock);
+        result = Result<ResultType>(std::move(value));
+        completion.notify_all();
+        notify_callbacks();
+    }
+
+    ResultType get_result() {
+        // blocking for result or throw on exception
+        std::unique_lock lock(completion_lock);
+        if (!result.has_value()) {
+            completion.wait(lock);
+        }
+        return result->get_or_throw();
+    }
+
+    void on_completed(std::function<void(Result<ResultType>)> &&func) {
+        std::unique_lock lock(completion_lock);
+        if (result.has_value()) {
+            auto value = result.value();
+            lock.unlock();
+            func(value);
+        } else {
+            completion_callbacks.push_back(func);
+        }
+    }
+
+private:
+    std::optional<Result<ResultType>> result;
+
+    std::mutex completion_lock;
+    std::condition_variable completion;
+
+    std::list<std::function<void(Result<ResultType>)>> completion_callbacks;
+
+    std::shared_ptr<AbstractExecutor> executor;
+
+    void notify_callbacks() {
+        auto value = result.value();
+        for (auto &callback: completion_callbacks) {
+            callback(value);
+        }
+        completion_callbacks.clear();
+    }
 
 };
 
 template<typename Executor>
 struct TaskPromise<void, Executor> {
-  DispatchAwaiter initial_suspend() { return DispatchAwaiter{executor}; }
+    TaskPromise() : executor_(std::make_shared<Executor>()) {}
+    InitialAwaiter initial_suspend() { return InitialAwaiter{executor_}; }
 
-  std::suspend_always final_suspend() noexcept { return {}; }
+    std::suspend_always final_suspend() noexcept { return {}; }
 
-  Task<void, Executor> get_return_object() {
-    return Task{std::coroutine_handle<TaskPromise>::from_promise(*this)};
-  }
-
-  template<typename _ResultType, typename _Executor>
-  TaskAwaiter<_ResultType, _Executor> await_transform(Task<_ResultType, _Executor> &&task) {
-    return await_transform(TaskAwaiter<_ResultType, _Executor>(std::move(task)));
-  }
-
-  template<typename _Rep, typename _Period>
-  SleepAwaiter await_transform(std::chrono::duration<_Rep, _Period> &&duration) {
-    return await_transform(SleepAwaiter(std::chrono::duration_cast<std::chrono::milliseconds>(duration).count()));
-  }
-
-  template<typename AwaiterImpl>
-  requires AwaiterImplRestriction<AwaiterImpl, typename AwaiterImpl::ResultType>
-  AwaiterImpl await_transform(AwaiterImpl &&awaiter) {
-    awaiter.install_executor(executor);
-    return awaiter;
-  }
-
-  void get_result() {
-    // blocking for result or throw on exception
-    std::unique_lock lock(completion_lock);
-    if (!result.has_value()) {
-      completion.wait(lock);
+    Task<void, Executor> get_return_object() {
+        return Task{std::coroutine_handle<TaskPromise>::from_promise(*this)};
     }
-    result->get_or_throw();
-  }
 
-  void unhandled_exception() {
-    std::lock_guard lock(completion_lock);
-    result = Result<void>(std::current_exception());
-    completion.notify_all();
-    notify_callbacks();
-  }
-
-  void return_void() {
-    std::lock_guard lock(completion_lock);
-    result = Result<void>();
-    completion.notify_all();
-    notify_callbacks();
-  }
-
-  void on_completed(std::function<void(Result<void>)> &&func) {
-    std::unique_lock lock(completion_lock);
-    if (result.has_value()) {
-      auto value = result.value();
-      lock.unlock();
-      func(value);
-    } else {
-      completion_callbacks.push_back(func);
+    template<typename _ResultType, typename _Executor>
+    TaskAwaiter<_ResultType, _Executor> await_transform(Task<_ResultType, _Executor> &&task) {
+        return await_transform(TaskAwaiter<_ResultType, _Executor>(std::move(task)));
     }
-  }
 
- private:
-  std::optional<Result<void>> result;
-
-  std::mutex completion_lock;
-  std::condition_variable completion;
-
-  std::list<std::function<void(Result<void>)>> completion_callbacks;
-
-    std::shared_ptr<AbstractExecutor>  executor;
-
-  void notify_callbacks() {
-    auto value = result.value();
-    for (auto &callback : completion_callbacks) {
-      callback(value);
+    template<typename _Rep, typename _Period>
+    SleepAwaiter await_transform(std::chrono::duration<_Rep, _Period> &&duration) {
+        return await_transform(SleepAwaiter(std::chrono::duration_cast<std::chrono::milliseconds>(duration).count()));
     }
-    completion_callbacks.clear();
-  }
+
+    template<typename AwaiterImpl>
+    requires AwaiterImplRestriction<AwaiterImpl, typename AwaiterImpl::ResultType>
+    AwaiterImpl await_transform(AwaiterImpl &&awaiter) {
+        awaiter.install_executor(executor_);
+        return awaiter;
+    }
+
+    void get_result() {
+        // blocking for result or throw on exception
+        std::unique_lock lock(completion_lock);
+        if (!result.has_value()) {
+            completion.wait(lock);
+        }
+        result->get_or_throw();
+    }
+
+    void unhandled_exception() {
+        std::lock_guard lock(completion_lock);
+        result = Result<void>(std::current_exception());
+        completion.notify_all();
+        notify_callbacks();
+    }
+
+    void return_void() {
+        std::lock_guard lock(completion_lock);
+        result = Result<void>();
+        completion.notify_all();
+        notify_callbacks();
+    }
+
+    void on_completed(std::function<void(Result<void>)> &&func) {
+        std::unique_lock lock(completion_lock);
+        if (result.has_value()) {
+            auto value = result.value();
+            lock.unlock();
+            func(value);
+        } else {
+            completion_callbacks.push_back(func);
+        }
+    }
+
+private:
+    std::optional<Result<void>> result;
+
+    std::mutex completion_lock;
+    std::condition_variable completion;
+
+    std::list<std::function<void(Result<void>)>> completion_callbacks;
+
+    std::shared_ptr<AbstractExecutor> executor_;
+
+    void notify_callbacks() {
+        auto value = result.value();
+        for (auto &callback: completion_callbacks) {
+            callback(value);
+        }
+        completion_callbacks.clear();
+    }
 
 };
 

@@ -8,7 +8,7 @@
 
 using namespace std::chrono_literals;
 
-Task<void, LooperExecutor> Producer(const std::shared_ptr<Channel<int>> &channel) {
+Task<void, LooperExecutor> Producer(std::shared_ptr<Channel<int>> &channel) {
     int i = 0;
     while (channel->is_active()) {
         debug("send: ", i);
@@ -16,7 +16,7 @@ Task<void, LooperExecutor> Producer(const std::shared_ptr<Channel<int>> &channel
     }
 }
 
-Task<void, LooperExecutor> Consumer(const std::shared_ptr<Channel<int>> &channel) {
+Task<void, LooperExecutor> Consumer(std::shared_ptr<Channel<int>> &channel) {
     while (channel->is_active()) {
         try {
             auto received = co_await channel->read();
@@ -30,7 +30,7 @@ Task<void, LooperExecutor> Consumer(const std::shared_ptr<Channel<int>> &channel
     debug("exit.");
 }
 
-Task<void, LooperExecutor> Consumer2(const std::shared_ptr<Channel<int>> &channel) {
+Task<void, LooperExecutor> Consumer2(std::shared_ptr<Channel<int>> &channel) {
     while (channel->is_active()) {
         try {
             auto received = co_await channel->read();
@@ -44,7 +44,7 @@ Task<void, LooperExecutor> Consumer2(const std::shared_ptr<Channel<int>> &channe
 }
 
 
-void test_channel(const std::shared_ptr<Channel<int>> &channel) {
+void test_channel(std::shared_ptr<Channel<int>> &channel) {
     auto producer = Producer(channel);
     auto consumer = Consumer(channel);
     auto consumer2 = Consumer2(channel);
