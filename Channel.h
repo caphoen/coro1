@@ -10,7 +10,7 @@
 #include <exception>
 
 template<typename ValueType>
-struct Channel {
+struct Channel: public std::enable_shared_from_this<Channel<ValueType>> {
 
     struct ChannelClosedException : std::exception {
         const char *what() const noexcept override {
@@ -29,11 +29,11 @@ struct Channel {
         check_closed();
 
         if (!buffer.empty()) {
-            ValueType value = std::move(buffer.front());
+            ValueType&& value = std::move(buffer.front());
             buffer.pop();
 
             if (!writer_list.empty()) {
-                auto writer = writer_list.front();
+                auto&& writer = writer_list.front();
                 writer_list.pop_front();
                 buffer.push(std::move(writer->_value));
                 lock.unlock();
@@ -47,7 +47,7 @@ struct Channel {
         }
 
         if (!writer_list.empty()) {
-            auto writer = writer_list.front();
+            auto&& writer = writer_list.front();
             writer_list.pop_front();
             lock.unlock();
 
@@ -65,7 +65,7 @@ struct Channel {
 
         // 优先处理等待的reader
         if (!reader_list.empty()) {
-            auto reader = reader_list.front();
+            auto&& reader = reader_list.front();
             reader_list.pop_front();
             lock.unlock();
 
@@ -98,14 +98,14 @@ struct Channel {
         debug("remove reader ", size);
     }
 
-    auto write(ValueType value) {
+    auto write(const ValueType& value) {
         check_closed();
-        return WriterAwaiter<ValueType>{this, value};
+        return WriterAwaiter<ValueType>{this->shared_from_this(), value};
     }
 
     auto read() {
         check_closed();
-        return ReaderAwaiter<ValueType>{this};
+        return ReaderAwaiter<ValueType>{this->shared_from_this()};
     }
 
 

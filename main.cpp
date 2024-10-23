@@ -12,7 +12,7 @@ Task<void, LooperExecutor> Producer(std::shared_ptr<Channel<int>> &channel) {
     int i = 0;
     while (channel->is_active()) {
         debug("send: ", i);
-        co_await channel->write(i++);
+        co_await channel->write(++i);
     }
 }
 

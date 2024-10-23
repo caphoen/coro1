@@ -9,17 +9,18 @@
 #include "CommonAwaiter.h"
 #include "utility"
 
+using namespace std;
 template<typename ValueType>
 struct Channel;
 
 template<typename ValueType>
 struct WriterAwaiter : public Awaiter<void> {
-    Channel<ValueType> *channel;
+    shared_ptr<Channel<ValueType>> channel;
     ValueType _value;
 
 
-    WriterAwaiter(Channel<ValueType> *channel, ValueType value)
-            : channel(channel), _value(std::move(value)) {}
+    WriterAwaiter(const shared_ptr<Channel<ValueType>> &channel, const ValueType& value)
+            : channel(channel), _value(value) {}
 
     WriterAwaiter(WriterAwaiter &&other) noexcept
             : Awaiter(other),
@@ -44,10 +45,10 @@ struct WriterAwaiter : public Awaiter<void> {
 
 template<typename ValueType>
 struct ReaderAwaiter : public Awaiter<ValueType> {
-    Channel<ValueType> *channel;
+    shared_ptr<Channel<ValueType>> channel;
     ValueType *p_value = nullptr;
 
-    explicit ReaderAwaiter(Channel<ValueType> *channel) : Awaiter<ValueType>(), channel(channel) {}
+    explicit ReaderAwaiter(const shared_ptr<Channel<ValueType>>& channel) : Awaiter<ValueType>(), channel(channel) {}
 
     ReaderAwaiter(ReaderAwaiter &&other) noexcept
             : Awaiter<ValueType>(other),
