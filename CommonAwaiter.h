@@ -26,9 +26,9 @@ struct Awaiter {
         return _result->get_or_throw();
     }
 
-    void resume(R value) {
-        dispatch([this, value]() {
-            _result = Result<R>(static_cast<R>(value));
+    void resume(R&& value) {
+        dispatch([this, v = std::move(value)]() mutable {
+            _result = Result<R>(std::move(v));
             _handle.resume();
         });
     }
@@ -56,8 +56,8 @@ protected:
     virtual void before_resume() {}
 
 private:
-    std::shared_ptr<AbstractExecutor> _executor = nullptr;
-    std::coroutine_handle<> _handle = nullptr;
+    std::shared_ptr<AbstractExecutor> _executor{nullptr};
+    std::coroutine_handle<> _handle{nullptr};
 
     void dispatch(std::function<void()> &&f) {
         if (_executor) {
@@ -113,8 +113,8 @@ struct Awaiter<void> {
 
 private:
     std::optional<Result<void>> _result{};
-    std::shared_ptr<AbstractExecutor> _executor = nullptr;
-    std::coroutine_handle<> _handle = nullptr;
+    std::shared_ptr<AbstractExecutor> _executor{nullptr};
+    std::coroutine_handle<> _handle{nullptr};
 
     void dispatch(std::function<void()> &&f) {
         if (_executor) {

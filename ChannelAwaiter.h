@@ -18,7 +18,6 @@ struct WriterAwaiter : public Awaiter<void> {
     shared_ptr<Channel<ValueType>> channel;
     ValueType _value;
 
-
     WriterAwaiter(const shared_ptr<Channel<ValueType>> &channel, const ValueType& value)
             : channel(channel), _value(value) {}
 
@@ -46,17 +45,14 @@ struct WriterAwaiter : public Awaiter<void> {
 template<typename ValueType>
 struct ReaderAwaiter : public Awaiter<ValueType> {
     shared_ptr<Channel<ValueType>> channel;
-    ValueType *p_value = nullptr;
 
     explicit ReaderAwaiter(const shared_ptr<Channel<ValueType>>& channel) : Awaiter<ValueType>(), channel(channel) {}
 
     ReaderAwaiter(ReaderAwaiter &&other) noexcept
             : Awaiter<ValueType>(other),
-              channel(std::exchange(other.channel, nullptr)),
-              p_value(std::exchange(other.p_value, nullptr)) {}
+              channel(std::exchange(other.channel, nullptr)) {}
 
     [[nodiscard]] bool await_ready() override { return false; }
-
 
     void after_suspend() override {
         channel->try_push_reader(this);
@@ -64,9 +60,6 @@ struct ReaderAwaiter : public Awaiter<ValueType> {
 
     void before_resume() override {
         channel->check_closed();
-        if (p_value) {
-            *p_value = std::move(this->_result->get_or_throw());
-        }
         channel = nullptr;
     }
 

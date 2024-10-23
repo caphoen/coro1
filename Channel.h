@@ -13,7 +13,7 @@ template<typename ValueType>
 struct Channel: public std::enable_shared_from_this<Channel<ValueType>> {
 
     struct ChannelClosedException : std::exception {
-        const char *what() const noexcept override {
+        [[nodiscard]] const char *what() const noexcept override {
             return "Channel is closed.";
         }
     };
@@ -29,11 +29,11 @@ struct Channel: public std::enable_shared_from_this<Channel<ValueType>> {
         check_closed();
 
         if (!buffer.empty()) {
-            ValueType&& value = std::move(buffer.front());
+            auto value = std::move(buffer.front());
             buffer.pop();
 
             if (!writer_list.empty()) {
-                auto&& writer = writer_list.front();
+                auto& writer = writer_list.front();
                 writer_list.pop_front();
                 buffer.push(std::move(writer->_value));
                 lock.unlock();
@@ -42,7 +42,7 @@ struct Channel: public std::enable_shared_from_this<Channel<ValueType>> {
                 lock.unlock();
             }
 
-            reader_awaiter->resume(value);
+            reader_awaiter->resume(std::move(value));
             return;
         }
 
@@ -98,6 +98,7 @@ struct Channel: public std::enable_shared_from_this<Channel<ValueType>> {
         debug("remove reader ", size);
     }
 
+    // 如果 value 后续用，可以直接在coawait处move
     auto write(const ValueType& value) {
         check_closed();
         return WriterAwaiter<ValueType>{this->shared_from_this(), value};

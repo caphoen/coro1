@@ -18,7 +18,7 @@ struct Result {
 
   T get_or_throw() {
     if (_exception_ptr) {
-      std::rethrow_exception(_exception_ptr);
+      std::rethrow_exception(std::move(_exception_ptr));
     }
     return _value;
   }
@@ -37,7 +37,7 @@ struct Result<void> {
 
   void get_or_throw() {
     if (_exception_ptr) {
-      std::rethrow_exception(_exception_ptr);
+      std::rethrow_exception(std::move(_exception_ptr));
     }
   }
 

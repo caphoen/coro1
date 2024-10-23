@@ -24,11 +24,11 @@ struct SleepAwaiter : Awaiter<void> {
     };
 
     void after_suspend() override {
-        static Scheduler scheduler;
         scheduler.execute([this] { resume(); }, _duration);
     }
 
 private:
+    static SleepScheduler scheduler;
     long long _duration;
 };
 
