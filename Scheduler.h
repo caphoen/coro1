@@ -53,7 +53,7 @@ public:
     }
 };
 
-class SleepScheduler{
+class SleepScheduler {
 private:
     std::condition_variable queue_condition;
     std::mutex queue_lock;

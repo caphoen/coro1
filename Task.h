@@ -6,8 +6,10 @@
 #define CPPCOROUTINES_04_TASK_TASK_H_
 
 #include "coroutine_common.h"
-#include "TaskPromise.h"
+#include <utility>
 
+#include "Executor.h"
+#include "TaskPromise.h"
 template<typename ResultType, typename Executor = LooperExecutor>
 struct Task {
 

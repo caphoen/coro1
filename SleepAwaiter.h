@@ -27,8 +27,11 @@ struct SleepAwaiter : Awaiter<void> {
         scheduler.execute([this] { resume(); }, _duration);
     }
 
+    void before_resume() override{}
 private:
     static SleepScheduler scheduler;
+//    static inline std::unique_ptr<SleepScheduler> scheduler = std::make_unique<SleepScheduler>();
+
     long long _duration;
 };
 

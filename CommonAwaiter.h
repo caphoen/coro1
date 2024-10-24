@@ -86,6 +86,7 @@ struct Awaiter<void> {
     }
 
     void resume() {
+        if (!_handle || _handle.done())return;
         dispatch([this]() {
             _result = Result<void>();
             _handle.resume();
@@ -107,9 +108,9 @@ struct Awaiter<void> {
         _executor = executor;
     }
 
-    virtual void after_suspend() {}
+    virtual void after_suspend() = 0;
 
-    virtual void before_resume() {}
+    virtual void before_resume() = 0;
 
 private:
     std::optional<Result<void>> _result{};

@@ -11,17 +11,44 @@
 #include <optional>
 
 #include "coroutine_common.h"
-#include "Result.h"
 #include "TaskAwaiter.h"
 #include "SleepAwaiter.h"
-#include "ChannelAwaiter.h"
-#include "CommonAwaiter.h"
 
+using namespace std;
 template<typename AwaiterImpl, typename R>
 concept AwaiterImplRestriction = std::is_base_of<Awaiter<R>, AwaiterImpl>::value;
 
 template<typename ResultType, typename Executor>
 class Task;
+
+struct InitialAwaiter {
+    explicit InitialAwaiter(std::shared_ptr<AbstractExecutor> &executor) noexcept
+            : executor_(executor) {}
+
+    [[nodiscard]] bool await_ready() const noexcept { return false; }
+
+    [[nodiscard]] bool await_suspend(std::coroutine_handle<> handle) const noexcept {
+        executor_->execute([handle]() { handle.resume(); });
+        return true;
+    }
+
+    void await_resume() noexcept {}
+
+private:
+    std::shared_ptr<AbstractExecutor> executor_{nullptr};
+
+};
+
+struct FinalAwaiter {
+    [[nodiscard]] bool await_ready() const noexcept { return false; }
+
+    void await_suspend(std::coroutine_handle<> handle) noexcept {
+        if (handle) handle.destroy();
+    }
+
+    void await_resume() noexcept {}
+};
+
 
 template<typename ResultType, typename Executor>
 struct TaskPromise {
@@ -29,38 +56,11 @@ struct TaskPromise {
 
     TaskPromise() : executor_(std::make_shared<Executor>()) {}
 
-    auto initial_suspend()const noexcept {
-        struct InitialAwaiter {
-            explicit InitialAwaiter(std::shared_ptr<AbstractExecutor> &executor) noexcept
-                    : executor_(executor) {}
-
-            [[nodiscard]] bool await_ready() const noexcept { return false; }
-
-            [[nodiscard]] bool await_suspend(std::coroutine_handle<promise_type> handle) const noexcept {
-                executor_->execute([handle]() { handle.resume(); });
-                return true;
-            }
-
-            void await_resume() noexcept {}
-
-        private:
-            std::shared_ptr<AbstractExecutor> executor_{nullptr};
-
-        };
+    auto initial_suspend() noexcept {
         return InitialAwaiter{executor_};
     }
 
     auto final_suspend() const noexcept {
-
-        struct FinalAwaiter {
-            [[nodiscard]] bool await_ready() const noexcept { return false; }
-
-            std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> handle) noexcept {
-                if (handle) handle.destroy();
-            }
-
-            void await_resume() noexcept {}
-        };
         return FinalAwaiter{};
     }
 
@@ -80,7 +80,7 @@ struct TaskPromise {
 
     template<typename AwaiterImpl>
     requires AwaiterImplRestriction<AwaiterImpl, typename AwaiterImpl::ResultType>
-    AwaiterImpl await_transform(AwaiterImpl awaiter) {
+    AwaiterImpl await_transform(AwaiterImpl &&awaiter) {
         awaiter.install_executor(executor_);
         return awaiter;
     }
@@ -131,7 +131,7 @@ private:
 
     void notify_callbacks() {
         auto value = result.value();
-        for (auto &callback: completion_callbacks) {
+        for (auto &&callback: completion_callbacks) {
             callback(value);
         }
         completion_callbacks.clear();
@@ -146,37 +146,10 @@ struct TaskPromise<void, Executor> {
     TaskPromise() : executor_(std::make_shared<Executor>()) {}
 
     auto initial_suspend() noexcept {
-        struct InitialAwaiter {
-            explicit InitialAwaiter(std::shared_ptr<AbstractExecutor> &executor) noexcept
-                    : executor_(executor) {}
-
-            [[nodiscard]] bool await_ready() const noexcept { return false; }
-
-            [[nodiscard]] bool await_suspend(std::coroutine_handle<promise_type> handle) const noexcept {
-                executor_->execute([handle]() { handle.resume(); });
-                return true;
-            }
-
-            void await_resume() noexcept {}
-
-        private:
-            std::shared_ptr<AbstractExecutor> executor_;
-
-        };
         return InitialAwaiter{executor_};
     }
 
     auto final_suspend() noexcept {
-
-        struct FinalAwaiter {
-            [[nodiscard]] bool await_ready() const noexcept { return false; }
-
-            std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> handle) noexcept {
-                if (handle) handle.destroy();
-            }
-
-            void await_resume() noexcept {}
-        };
         return FinalAwaiter{};
     }
 

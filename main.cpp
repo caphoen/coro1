@@ -8,13 +8,27 @@
 
 using namespace std::chrono_literals;
 
-Task<void, LooperExecutor> Producer(std::shared_ptr<Channel<int>> &channel) {
-    int i = 0;
-    while (channel->is_active()) {
-        debug("send: ", i);
-        co_await channel->write(++i);
-    }
+//class Producer {
+//public:
+//    Task<void, LooperExecutor> run(std::shared_ptr<Channel<int>> &channel) {
+//        int i = 0;
+//        while (channel->is_active()) {
+//            debug("send: ", i);
+//            co_await channel->write(++i);
+//        }
+//    }
+//
+//};
+
+
+Task<void, LooperExecutor> run(std::shared_ptr<Channel<int>> &channel) {
+        int i = 0;
+        while (channel->is_active()) {
+            debug("send: ", i);
+            co_await channel->write(++i);
+        }
 }
+
 
 Task<void, LooperExecutor> Consumer(std::shared_ptr<Channel<int>> &channel) {
     while (channel->is_active()) {
@@ -45,7 +59,10 @@ Task<void, LooperExecutor> Consumer2(std::shared_ptr<Channel<int>> &channel) {
 
 
 void test_channel(std::shared_ptr<Channel<int>> &channel) {
-    auto producer = Producer(channel);
+//    auto producer = make_unique<Producer>();
+//    producer->run(channel);
+    auto producer = run(channel);
+
     auto consumer = Consumer(channel);
     auto consumer2 = Consumer2(channel);
 
