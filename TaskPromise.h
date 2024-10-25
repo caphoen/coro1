@@ -22,7 +22,7 @@ template<typename ResultType, typename Executor>
 class Task;
 
 struct InitialAwaiter {
-    explicit InitialAwaiter(std::shared_ptr<AbstractExecutor> &executor) noexcept
+    explicit InitialAwaiter(const std::shared_ptr<AbstractExecutor> &executor) noexcept
             : executor_(executor) {}
 
     [[nodiscard]] bool await_ready() const noexcept { return false; }
@@ -56,7 +56,7 @@ struct TaskPromise {
 
     TaskPromise() : executor_(std::make_shared<Executor>()) {}
 
-    auto initial_suspend() noexcept {
+    auto initial_suspend() const noexcept {
         return InitialAwaiter{executor_};
     }
 
@@ -92,7 +92,7 @@ struct TaskPromise {
         notify_callbacks();
     }
 
-    void return_value(ResultType value) {
+    void return_value(ResultType&& value) {
         std::lock_guard lock(completion_lock);
         result = Result<ResultType>(std::move(value));
         completion.notify_all();
@@ -106,17 +106,6 @@ struct TaskPromise {
             completion.wait(lock);
         }
         return result->get_or_throw();
-    }
-
-    void on_completed(std::function<void(Result<ResultType>)> &&func) {
-        std::unique_lock lock(completion_lock);
-        if (result.has_value()) {
-            auto value = result.value();
-            lock.unlock();
-            func(value);
-        } else {
-            completion_callbacks.push_back(func);
-        }
     }
 
 private:
@@ -141,7 +130,6 @@ private:
 
 template<typename Executor>
 struct TaskPromise<void, Executor> {
-    using promise_type = TaskPromise<void, Executor>;
 
     TaskPromise() : executor_(std::make_shared<Executor>()) {}
 
@@ -164,12 +152,12 @@ struct TaskPromise<void, Executor> {
 
     template<typename _Rep, typename _Period>
     SleepAwaiter await_transform(std::chrono::duration<_Rep, _Period> &&duration) {
-        return await_transform(SleepAwaiter(std::chrono::duration_cast<std::chrono::milliseconds>(duration).count()));
+        return await_transform(SleepAwaiter(std::chrono::duration_cast<std::chrono::milliseconds>(std::move(duration)).count()));
     }
 
     template<typename AwaiterImpl>
     requires AwaiterImplRestriction<AwaiterImpl, typename AwaiterImpl::ResultType>
-    AwaiterImpl await_transform(AwaiterImpl &&awaiter) {
+    auto await_transform(AwaiterImpl &&awaiter) {
         /*
          * 之所以这里不转移所有权是因为每个协程只会创建 executor_ 一次
          *  当co_await时，每次都需要传executor_引用
@@ -201,17 +189,6 @@ struct TaskPromise<void, Executor> {
         notify_callbacks();
     }
 
-    void on_completed(std::function<void(Result<void>)> &&func) {
-        std::unique_lock lock(completion_lock);
-        if (result.has_value()) {
-            auto value = result.value();
-            lock.unlock();
-            func(value);
-        } else {
-            completion_callbacks.push_back(func);
-        }
-    }
-
 private:
     std::optional<Result<void>> result;
 
@@ -224,7 +201,7 @@ private:
 
     void notify_callbacks() {
         auto value = result.value();
-        for (auto &callback: completion_callbacks) {
+        for (const auto &callback: completion_callbacks) {
             callback(value);
         }
         completion_callbacks.clear();
