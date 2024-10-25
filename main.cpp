@@ -6,31 +6,21 @@
 #include "io_utils.h"
 #include "Channel.h"
 
+#include <utility>
 using namespace std::chrono_literals;
 
-//class Producer {
-//public:
-//    Task<void, LooperExecutor> run(std::shared_ptr<Channel<int>> &channel) {
-//        int i = 0;
-//        while (channel->is_active()) {
-//            debug("send: ", i);
-//            co_await channel->write(++i);
-//        }
-//    }
-//
-//};
+
+static inline shared_ptr<Channel<int>> channel;
+static inline int i=0;
 
 
-Task<void, LooperExecutor> run(std::shared_ptr<Channel<int>> &channel) {
-        int i = 0;
-        while (channel->is_active()) {
-            debug("send: ", i);
-            co_await channel->write(++i);
-        }
+void producer() {
+    while (true) {
+        channel->writer_message(i);
+    }
 }
 
-
-Task<void, LooperExecutor> Consumer(std::shared_ptr<Channel<int>> &channel) {
+Task<void, LooperExecutor> Consumer() {
     while (channel->is_active()) {
         try {
             auto received = co_await channel->read();
@@ -44,7 +34,7 @@ Task<void, LooperExecutor> Consumer(std::shared_ptr<Channel<int>> &channel) {
     debug("exit.");
 }
 
-Task<void, LooperExecutor> Consumer2(std::shared_ptr<Channel<int>> &channel) {
+Task<void, LooperExecutor> Consumer2() {
     while (channel->is_active()) {
         try {
             auto received = co_await channel->read();
@@ -58,13 +48,11 @@ Task<void, LooperExecutor> Consumer2(std::shared_ptr<Channel<int>> &channel) {
 }
 
 
-void test_channel(std::shared_ptr<Channel<int>> &channel) {
-//    auto producer = make_unique<Producer>();
-//    producer->run(channel);
-    auto producer = run(channel);
+void test_channel() {
+    std::thread p(producer);
 
-    auto consumer = Consumer(channel);
-    auto consumer2 = Consumer2(channel);
+    auto consumer = Consumer();
+    auto consumer2 = Consumer2();
 
     debug("sleep ...");
     std::this_thread::sleep_for(3s);
@@ -73,9 +61,9 @@ void test_channel(std::shared_ptr<Channel<int>> &channel) {
 
 int main() {
 //    auto channel = Channel<int>(10000);
-    auto channel = std::make_shared<Channel<int>>(1000);
+    channel = std::make_shared<Channel<int>>(1000);
 
-    test_channel(channel);
+    test_channel();
     channel->close();
 //  test_tasks();
     return 0;

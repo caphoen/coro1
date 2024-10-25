@@ -16,7 +16,7 @@
 
 using namespace std;
 template<typename AwaiterImpl, typename R>
-concept AwaiterImplRestriction = std::is_base_of<Awaiter<R>, AwaiterImpl>::value;
+concept AwaiterImplRestriction = std::is_base_of_v<Awaiter<R>, AwaiterImpl>;
 
 template<typename ResultType, typename Executor>
 class Task;

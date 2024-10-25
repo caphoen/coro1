@@ -29,11 +29,35 @@ struct Result {
 };
 
 template<>
+struct Result<int> {
+
+    explicit Result() = default;
+
+    explicit Result(int value) : _value(value) {}
+
+    // 或者保持右值引用版本
+    explicit Result(std::exception_ptr&& exception_ptr)
+            : _exception_ptr(std::move(exception_ptr)) {}
+
+    int get_or_throw() {
+        if (_exception_ptr) {
+            std::rethrow_exception(std::move(_exception_ptr));
+        }
+        return _value;
+    }
+
+private:
+    int _value{};
+    std::exception_ptr _exception_ptr;
+};
+
+
+template<>
 struct Result<void> {
 
   explicit Result() = default;
 
-  explicit Result(std::exception_ptr &&exception_ptr) : _exception_ptr(exception_ptr) {}
+  explicit Result(std::exception_ptr &&exception_ptr) : _exception_ptr(std::move(exception_ptr)) {}
 
   void get_or_throw() {
     if (_exception_ptr) {
